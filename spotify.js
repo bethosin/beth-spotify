@@ -1,15 +1,15 @@
 // =====================
-// Spotify PKCE Auth Flow
+// Front-end Spotify JS
 // =====================
 
-// Replace with your Spotify app client ID
+// Your Spotify app info
 const clientId = "9013c8d754e743599e5cee871de9fd83";
-const redirectUri = "https://beth-spotify.vercel.app/"; // Deployed URI
+const redirectUri = "https://beth-spotify.vercel.app/"; // deployed URL
 const scopes = "user-top-read user-read-email user-read-private";
 
 let accessToken = "";
 
-// Generate random string (for PKCE verifier)
+// Generate random string for PKCE verifier
 function generateRandomString(length) {
   const charset =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -19,7 +19,7 @@ function generateRandomString(length) {
   return result;
 }
 
-// Base64 URL Encode
+// Base64 URL encode
 function base64urlencode(a) {
   return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
     .replace(/\+/g, "-")
@@ -27,14 +27,14 @@ function base64urlencode(a) {
     .replace(/=+$/, "");
 }
 
-// SHA256 (for PKCE challenge)
+// SHA256 for PKCE challenge
 async function sha256(verifier) {
   const encoder = new TextEncoder();
   const data = encoder.encode(verifier);
   return await crypto.subtle.digest("SHA-256", data);
 }
 
-// Step 1: Login with Spotify
+// Redirect user to Spotify login
 async function loginWithSpotify() {
   const verifier = generateRandomString(128);
   const challenge = base64urlencode(await sha256(verifier));
@@ -50,7 +50,7 @@ async function loginWithSpotify() {
   window.location.href = authUrl;
 }
 
-// Step 2: Exchange code for access token
+// Exchange authorization code for access token via serverless API
 async function getAccessToken(code) {
   const verifier = localStorage.getItem("code_verifier");
 
@@ -58,23 +58,24 @@ async function getAccessToken(code) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      code: code,
-      verifier: verifier,
-      redirectUri: redirectUri,
+      code,
+      verifier,
+      redirectUri,
     }),
   });
 
-  const data = await response.json();
-  if (data.access_token) {
-    localStorage.setItem("spotify_token", data.access_token);
-    return data.access_token;
-  } else {
-    console.error("Token exchange failed", data);
-    throw new Error("Failed to get access token");
+  if (!response.ok) {
+    const errData = await response.json();
+    console.error(errData);
+    throw new Error("Token exchange failed");
   }
+
+  const data = await response.json();
+  localStorage.setItem("spotify_token", data.access_token);
+  return data.access_token;
 }
 
-// Logout: clear token & reload page
+// Logout
 function logoutFromSpotify() {
   accessToken = "";
   localStorage.removeItem("spotify_token");
@@ -82,30 +83,28 @@ function logoutFromSpotify() {
 }
 
 // Fetch wrapper
-const fetchWebApi = async (endpoint, method, body) => {
+const fetchWebApi = async (endpoint, method = "GET", body = null) => {
   try {
     const res = await fetch(`https://api.spotify.com/${endpoint}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       method,
-      body: JSON.stringify(body),
+      body: body ? JSON.stringify(body) : null,
     });
-
     if (!res.ok) throw new Error(`Error: ${res.status} ${res.statusText}`);
     return await res.json();
-  } catch (error) {
-    console.log(error);
+  } catch (err) {
+    console.error(err);
     alert("Something went wrong. Please try again later.");
   }
 };
 
 // Get user profile
-const getUserProfile = async () => await fetchWebApi("v1/me", "GET");
+const getUserProfile = async () => await fetchWebApi("v1/me");
 
-// Get user’s top tracks
+// Get top tracks
 const getTopTracks = async () => {
   const result = await fetchWebApi(
-    "v1/me/top/tracks?time_range=long_term&limit=6",
-    "GET"
+    "v1/me/top/tracks?time_range=long_term&limit=6"
   );
   return result.items;
 };
@@ -142,10 +141,7 @@ const displayTracks = (tracks) => {
 // Play preview audio
 let audio = null;
 function playPreview(url) {
-  if (audio) {
-    audio.pause();
-    audio = null;
-  }
+  if (audio) audio.pause();
   audio = new Audio(url);
   audio.play();
 }
@@ -172,16 +168,16 @@ const initApp = async () => {
 
   accessToken = localStorage.getItem("spotify_token");
 
-  // If redirected with ?code=... → exchange for token
   const params = new URLSearchParams(window.location.search);
   const code = params.get("code");
+
   if (code && !accessToken) {
     try {
       accessToken = await getAccessToken(code);
       window.history.replaceState({}, document.title, "/"); // clean URL
     } catch (err) {
       console.error(err);
-      alert("Login failed, please try again.");
+      alert("Login failed. Please try again.");
     }
   }
 
@@ -197,8 +193,8 @@ const initApp = async () => {
 
       document.getElementById("loading").style.display = "none";
       document.getElementById("tracks").style.display = "flex";
-    } catch (error) {
-      console.log("Error loading user data", error);
+    } catch (err) {
+      console.error(err);
       logoutFromSpotify();
     }
   } else {
@@ -207,4 +203,5 @@ const initApp = async () => {
   }
 };
 
+// Run on load
 window.onload = initApp;
