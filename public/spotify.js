@@ -52,7 +52,7 @@ async function loginWithSpotify() {
 async function getAccessToken(code) {
   const verifier = localStorage.getItem("code_verifier");
 
-  const response = await fetch("/api/callback", {
+  const response = await fetch("../api/callback.js", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code, verifier, redirectUri }),
