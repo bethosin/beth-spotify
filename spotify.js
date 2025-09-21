@@ -1,6 +1,6 @@
 // Replace with your Spotify app credentials
 const clientId = "9013c8d754e743599e5cee871de9fd83";
-const redirectUri = "http://127.0.0.1:5500/index.html"; // Change when deployed
+const redirectUri = "https://beth-spotify.vercel.app/"; // Change when deployed
 const scopes = "user-top-read user-read-email user-read-private";
 
 let accessToken = "";
