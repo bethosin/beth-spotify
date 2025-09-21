@@ -1,31 +1,85 @@
-// Replace with your Spotify app credentials
+// =====================
+// Spotify PKCE Auth Flow
+// =====================
+
+// Replace with your Spotify app client ID
 const clientId = "9013c8d754e743599e5cee871de9fd83";
-const redirectUri = "https://beth-spotify.vercel.app/"; // Change when deployed
+const redirectUri = "https://beth-spotify.vercel.app/"; // Deployed URI
 const scopes = "user-top-read user-read-email user-read-private";
 
 let accessToken = "";
 
-// Redirect user to Spotify login
-const loginWithSpotify = () => {
-  const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(
+// Generate random string (for PKCE verifier)
+function generateRandomString(length) {
+  const charset =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let result = "";
+  const values = crypto.getRandomValues(new Uint8Array(length));
+  values.forEach((v) => (result += charset[v % charset.length]));
+  return result;
+}
+
+// Base64 URL Encode
+function base64urlencode(a) {
+  return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+// SHA256 (for PKCE challenge)
+async function sha256(verifier) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  return await crypto.subtle.digest("SHA-256", data);
+}
+
+// Step 1: Login with Spotify
+async function loginWithSpotify() {
+  const verifier = generateRandomString(128);
+  const challenge = base64urlencode(await sha256(verifier));
+
+  localStorage.setItem("code_verifier", verifier);
+
+  const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${clientId}&scope=${encodeURIComponent(
+    scopes
+  )}&redirect_uri=${encodeURIComponent(
     redirectUri
-  )}&scope=${encodeURIComponent(scopes)}`;
+  )}&code_challenge_method=S256&code_challenge=${challenge}`;
+
   window.location.href = authUrl;
-};
+}
+
+// Step 2: Exchange code for access token
+async function getAccessToken(code) {
+  const verifier = localStorage.getItem("code_verifier");
+
+  const response = await fetch("/api/callback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      code: code,
+      verifier: verifier,
+      redirectUri: redirectUri,
+    }),
+  });
+
+  const data = await response.json();
+  if (data.access_token) {
+    localStorage.setItem("spotify_token", data.access_token);
+    return data.access_token;
+  } else {
+    console.error("Token exchange failed", data);
+    throw new Error("Failed to get access token");
+  }
+}
 
 // Logout: clear token & reload page
-const logoutFromSpotify = () => {
+function logoutFromSpotify() {
   accessToken = "";
   localStorage.removeItem("spotify_token");
   location.reload();
-};
-
-// Extract token from URL after redirect
-const getTokenFromUrl = () => {
-  const hash = window.location.hash.substring(1);
-  const params = new URLSearchParams(hash);
-  return params.get("access_token");
-};
+}
 
 // Fetch wrapper
 const fetchWebApi = async (endpoint, method, body) => {
@@ -37,7 +91,6 @@ const fetchWebApi = async (endpoint, method, body) => {
     });
 
     if (!res.ok) throw new Error(`Error: ${res.status} ${res.statusText}`);
-
     return await res.json();
   } catch (error) {
     console.log(error);
@@ -46,9 +99,7 @@ const fetchWebApi = async (endpoint, method, body) => {
 };
 
 // Get user profile
-const getUserProfile = async () => {
-  return await fetchWebApi("v1/me", "GET");
-};
+const getUserProfile = async () => await fetchWebApi("v1/me", "GET");
 
 // Get user’s top tracks
 const getTopTracks = async () => {
@@ -90,17 +141,17 @@ const displayTracks = (tracks) => {
 
 // Play preview audio
 let audio = null;
-const playPreview = (url) => {
+function playPreview(url) {
   if (audio) {
     audio.pause();
     audio = null;
   }
   audio = new Audio(url);
   audio.play();
-};
+}
 
 // Show user info in navbar
-const showUser = (user) => {
+function showUser(user) {
   const userSection = document.getElementById("userSection");
   const profilePic =
     user.images && user.images.length > 0
@@ -112,23 +163,26 @@ const showUser = (user) => {
     <span class="me-3">${user.display_name || "Spotify User"}</span>
     <button class="btn btn-danger btn-sm" onclick="logoutFromSpotify()">Logout</button>
   `;
-};
+}
 
 // Initialize app
 const initApp = async () => {
-  // Show spinner at start
   document.getElementById("loading").style.display = "block";
   document.getElementById("tracks").style.display = "none";
 
-  // Check local storage first
   accessToken = localStorage.getItem("spotify_token");
 
-  // If redirected back with token, save it
-  const tokenFromUrl = getTokenFromUrl();
-  if (tokenFromUrl) {
-    accessToken = tokenFromUrl;
-    localStorage.setItem("spotify_token", accessToken);
-    window.location.hash = ""; // clean URL
+  // If redirected with ?code=... → exchange for token
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get("code");
+  if (code && !accessToken) {
+    try {
+      accessToken = await getAccessToken(code);
+      window.history.replaceState({}, document.title, "/"); // clean URL
+    } catch (err) {
+      console.error(err);
+      alert("Login failed, please try again.");
+    }
   }
 
   const userSection = document.getElementById("userSection");
@@ -141,7 +195,6 @@ const initApp = async () => {
       const tracks = await getTopTracks();
       displayTracks(tracks);
 
-      // Hide spinner after loading
       document.getElementById("loading").style.display = "none";
       document.getElementById("tracks").style.display = "flex";
     } catch (error) {
@@ -149,8 +202,9 @@ const initApp = async () => {
       logoutFromSpotify();
     }
   } else {
-    // Show login button if not logged in
     userSection.innerHTML = `<button class="btn btn-spotify px-4 py-2" onclick="loginWithSpotify()">Login with Spotify</button>`;
     document.getElementById("loading").style.display = "none";
   }
 };
+
+window.onload = initApp;
