@@ -1,8 +1,7 @@
 // =====================
-// Front-end Spotify JS
+// Frontend Spotify JS
 // =====================
 
-// Your Spotify app info
 const clientId = "9013c8d754e743599e5cee871de9fd83";
 const redirectUri = "https://beth-spotify.vercel.app/"; // deployed URL
 const scopes = "user-top-read user-read-email user-read-private";
@@ -38,7 +37,6 @@ async function sha256(verifier) {
 async function loginWithSpotify() {
   const verifier = generateRandomString(128);
   const challenge = base64urlencode(await sha256(verifier));
-
   localStorage.setItem("code_verifier", verifier);
 
   const authUrl = `https://accounts.spotify.com/authorize?response_type=code&client_id=${clientId}&scope=${encodeURIComponent(
@@ -57,11 +55,7 @@ async function getAccessToken(code) {
   const response = await fetch("/api/callback", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      code,
-      verifier,
-      redirectUri,
-    }),
+    body: JSON.stringify({ code, verifier, redirectUri }),
   });
 
   if (!response.ok) {
